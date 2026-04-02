@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskQueue — Control Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080c10;
+            --surface: #0d1117;
+            --surface2: #161b22;
+            --border: #21262d;
+            --accent: #00ff88;
+            --accent2: #0088ff;
+            --urgent: #ff4444;
+            --normal: #ffaa00;
+            --low: #00cc66;
+            --pending: #888;
+            --running: #0088ff;
+            --completed: #00ff88;
+            --failed: #ff4444;
+            --retrying: #ffaa00;
+            --text: #e6edf3;
+            --text2: #7d8590;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-display: 'Syne', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+        /* Header */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 28px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), transparent);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .logo-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .logo-text {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-text span { color: var(--accent); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-dot {
+            width: 8px; height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+            50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+        }
+
+        .status-text { font-size: 12px; color: var(--accent); }
+
+        .auto-refresh-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text2);
+            cursor: pointer;
+        }
+
+        .toggle {
+            width: 36px; height: 20px;
+            background: var(--border);
+            border-radius: 10px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle.active { background: var(--accent); }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 14px; height: 14px;
+            background: white;
+            border-radius: 50%;
+            top: 3px; left: 3px;
+            transition: transform 0.3s;
+        }
+
+        .toggle.active::after { transform: translateX(16px); }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px 20px;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s, transform 0.2s;
+        }
+
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-card.pending:hover { border-color: var(--pending); }
+        .stat-card.running:hover { border-color: var(--running); }
+        .stat-card.completed:hover { border-color: var(--completed); }
+        .stat-card.failed:hover { border-color: var(--failed); }
+        .stat-card.retrying:hover { border-color: var(--retrying); }
+
+        .stat-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text2);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: var(--font-display);
+            font-size: 32px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .stat-card.pending .stat-value { color: var(--pending); }
+        .stat-card.running .stat-value { color: var(--running); }
+        .stat-card.completed .stat-value { color: var(--completed); }
+        .stat-card.failed .stat-value { color: var(--failed); }
+        .stat-card.retrying .stat-value { color: var(--retrying); }
+
+        .stat-bar {
+            position: absolute;
+            bottom: 0; left: 0;
+            height: 3px;
+            width: 0%;
+            transition: width 0.8s ease;
+        }
+
+        .stat-card.pending .stat-bar { background: var(--pending); }
+        .stat-card.running .stat-bar { background: var(--running); }
+        .stat-card.completed .stat-bar { background: var(--completed); }
+        .stat-card.failed .stat-bar { background: var(--failed); }
+        .stat-card.retrying .stat-bar { background: var(--retrying); }
+
+        /* Main layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 20px;
+        }
+
+        /* Panel */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-family: var(--font-display);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .panel-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text2);
+        }
+
+        /* Submit Form */
+        .submit-form { padding: 20px; }
+
+        .form-group { margin-bottom: 16px; }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text2);
+            margin-bottom: 8px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+            appearance: none;
+        }
+
+        .form-input:focus, .form-select:focus {
+            border-color: var(--accent);
+        }
+
+        .form-select option { background: var(--surface2); }
+
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            color: var(--accent);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .submit-btn:hover {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .submit-btn:active { transform: scale(0.98); }
+
+        .submit-btn.loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* Response area */
+        .response-area {
+            margin-top: 16px;
+            padding: 12px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 11px;
+            color: var(--text2);
+            min-height: 60px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+
+        .response-area.show { display: block; }
+        .response-area.success { border-color: var(--accent); color: var(--accent); }
+        .response-area.error { border-color: var(--failed); color: var(--failed); }
+
+        /* Task Table */
+        .table-controls {
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 5px 12px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text2);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .refresh-btn {
+            margin-left: auto;
+            padding: 5px 14px;
+            background: transparent;
+            border: 1px solid var(--accent2);
+            border-radius: 6px;
+            color: var(--accent2);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.5px;
+        }
+
+        .refresh-btn:hover {
+            background: var(--accent2);
+            color: var(--bg);
+        }
+
+        .task-table-wrap {
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        /* Custom scrollbar */
+        .task-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+        .task-table-wrap::-webkit-scrollbar-track { background: var(--surface); }
+        .task-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .task-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        th {
+            padding: 10px 16px;
+            text-align: left;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text2);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 1;
+        }
+
+        td {
+            padding: 12px 16px;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(33,38,45,0.5);
+            vertical-align: middle;
+        }
+
+        tr:hover td { background: var(--surface2); }
+
+        tr.new-row td { animation: slideIn 0.4s ease; }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .task-id {
+            font-size: 10px;
+            color: var(--text2);
+            max-width: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .task-name { font-weight: 500; }
+
+        /* Status badge */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid;
+        }
+
+        .badge-dot {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+        }
+
+        .badge.PENDING { color: var(--pending); border-color: rgba(136,136,136,0.3); background: rgba(136,136,136,0.05); }
+        .badge.PENDING .badge-dot { background: var(--pending); }
+
+        .badge.RUNNING { color: var(--running); border-color: rgba(0,136,255,0.3); background: rgba(0,136,255,0.05); }
+        .badge.RUNNING .badge-dot { background: var(--running); animation: pulse 1s infinite; }
+
+        .badge.COMPLETED { color: var(--completed); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+        .badge.COMPLETED .badge-dot { background: var(--completed); }
+
+        .badge.FAILED { color: var(--failed); border-color: rgba(255,68,68,0.3); background: rgba(255,68,68,0.05); }
+        .badge.FAILED .badge-dot { background: var(--failed); }
+
+        .badge.RETRYING { color: var(--retrying); border-color: rgba(255,170,0,0.3); background: rgba(255,170,0,0.05); }
+        .badge.RETRYING .badge-dot { background: var(--retrying); animation: pulse 0.8s infinite; }
+
+        /* Priority badge */
+        .priority {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .priority.URGENT { color: var(--urgent); }
+        .priority.NORMAL { color: var(--normal); }
+        .priority.LOW { color: var(--low); }
+
+        /* Type chip */
+        .type-chip {
+            font-size: 10px;
+            color: var(--text2);
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .retry-count {
+            font-size: 11px;
+            color: var(--text2);
+        }
+
+        .retry-count.has-retries { color: var(--retrying); }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text2);
+        }
+
+        .empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
+        .empty-state-text { font-size: 13px; }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 100;
+        }
+
+        .toast {
+            padding: 12px 18px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 12px;
+            max-width: 300px;
+            animation: toastIn 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toast.success { border-color: var(--accent); }
+        .toast.error { border-color: var(--failed); }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 20px;
+            padding: 16px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text2);
+        }
+
+        .footer-left { display: flex; gap: 20px; }
+        .footer-stat span { color: var(--accent); }
+
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app">
+    <!-- Header -->
+    <header>
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            <div>
+                <div class="logo-text">Task<span>Queue</span></div>
+                <div style="font-size:10px;color:var(--text2);margin-top:2px;">Distributed Task Processing System</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="status-dot"></div>
+            <div class="status-text">SYSTEM ONLINE</div>
+            <div class="auto-refresh-toggle" onclick="toggleAutoRefresh()">
+                <div class="toggle active" id="toggleEl"></div>
+                <span id="toggleLabel">Auto-refresh ON</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+        <div class="stat-card pending">
+            <div class="stat-label">Pending</div>
+            <div class="stat-value" id="stat-pending">0</div>
+            <div class="stat-bar" id="bar-pending"></div>
+        </div>
+        <div class="stat-card running">
+            <div class="stat-label">Running</div>
+            <div class="stat-value" id="stat-running">0</div>
+            <div class="stat-bar" id="bar-running"></div>
+        </div>
+        <div class="stat-card completed">
+            <div class="stat-label">Completed</div>
+            <div class="stat-value" id="stat-completed">0</div>
+            <div class="stat-bar" id="bar-completed"></div>
+        </div>
+        <div class="stat-card failed">
+            <div class="stat-label">Failed</div>
+            <div class="stat-value" id="stat-failed">0</div>
+            <div class="stat-bar" id="bar-failed"></div>
+        </div>
+        <div class="stat-card retrying">
+            <div class="stat-label">Retrying</div>
+            <div class="stat-value" id="stat-retrying">0</div>
+            <div class="stat-bar" id="bar-retrying"></div>
+        </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+
+        <!-- Submit Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Submit Task</div>
+                <div class="panel-badge">POST /tasks</div>
+            </div>
+            <div class="submit-form">
+                <div class="form-group">
+                    <label class="form-label">Task Name</label>
+                    <input class="form-input" id="taskName" placeholder="e.g. Send OTP to +91..." />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Task Type</label>
+                    <select class="form-select" id="taskType">
+                        <option value="SEND_OTP">SEND_OTP</option>
+                        <option value="PROCESS_PAYMENT">PROCESS_PAYMENT</option>
+                        <option value="SEND_EMAIL">SEND_EMAIL</option>
+                        <option value="UPDATE_INVENTORY">UPDATE_INVENTORY</option>
+                        <option value="NOTIFY_USER">NOTIFY_USER</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-select" id="taskPriority">
+                        <option value="URGENT">🔴 URGENT</option>
+                        <option value="NORMAL" selected>🟡 NORMAL</option>
+                        <option value="LOW">🟢 LOW</option>
+                    </select>
+                </div>
+                <button class="submit-btn" id="submitBtn" onclick="submitTask()">
+                    ➕ Submit Task
+                </button>
+
+                <!-- Quick submit buttons -->
+                <div style="margin-top:14px;">
+                    <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Quick Submit</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                        <button class="filter-btn" onclick="quickSubmit('Send OTP', 'SEND_OTP', 'URGENT')">OTP</button>
+                        <button class="filter-btn" onclick="quickSubmit('Process Payment', 'PROCESS_PAYMENT', 'URGENT')">Payment</button>
+                        <button class="filter-btn" onclick="quickSubmit('Send Email', 'SEND_EMAIL', 'NORMAL')">Email</button>
+                        <button class="filter-btn" onclick="quickSubmit('Update Stock', 'UPDATE_INVENTORY', 'LOW')">Inventory</button>
+                    </div>
+                </div>
+
+                <div class="response-area" id="responseArea"></div>
+            </div>
+        </div>
+
+        <!-- Task Table Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Task Monitor</div>
+                <div class="panel-badge" id="taskCount">0 tasks</div>
+            </div>
+            <div class="table-controls">
+                <button class="filter-btn active" onclick="setFilter('ALL', this)">All</button>
+                <button class="filter-btn" onclick="setFilter('PENDING', this)">Pending</button>
+                <button class="filter-btn" onclick="setFilter('RUNNING', this)">Running</button>
+                <button class="filter-btn" onclick="setFilter('COMPLETED', this)">Completed</button>
+                <button class="filter-btn" onclick="setFilter('FAILED', this)">Failed</button>
+                <button class="filter-btn" onclick="setFilter('RETRYING', this)">Retrying</button>
+                <button class="refresh-btn" onclick="loadTasks()">↻ Refresh</button>
+            </div>
+            <div class="task-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Retries</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskTableBody">
+                        <tr>
+                            <td colspan="7">
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">📭</div>
+                                    <div class="empty-state-text">No tasks yet. Submit one to get started.</div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-left">
+            <div class="footer-stat">Workers: <span>3 threads</span></div>
+            <div class="footer-stat">Queue: <span>PriorityBlockingQueue</span></div>
+            <div class="footer-stat">Retry: <span>Exponential Backoff</span></div>
+        </div>
+        <div>Last updated: <span id="lastUpdated" style="color:var(--accent)">—</span></div>
+    </footer>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    let currentFilter = 'ALL';
+    let allTasks = [];
+    let autoRefresh = true;
+    let refreshInterval;
+
+    // ─── API BASE ───────────────────────────────────────────────
+    const API = '';  // same origin
+
+    // ─── LOAD TASKS ─────────────────────────────────────────────
+    async function loadTasks() {
+        try {
+            const res = await fetch(`${API}/tasks`);
+            if (!res.ok) throw new Error('Failed to fetch');
+            allTasks = await res.json();
+            renderTasks();
+            updateStats();
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        } catch (e) {
+            // silently fail on auto-refresh
+        }
+    }
+
+    // ─── RENDER TASKS ───────────────────────────────────────────
+    function renderTasks() {
+        const tbody = document.getElementById('taskTableBody');
+        const filtered = currentFilter === 'ALL'
+            ? allTasks
+            : allTasks.filter(t => t.status === currentFilter);
+
+        document.getElementById('taskCount').textContent = `${filtered.length} task${filtered.length !== 1 ? 's' : ''}`;
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-text">No ${currentFilter === 'ALL' ? '' : currentFilter.toLowerCase() + ' '}tasks found.</div>
+            </div></td></tr>`;
+            return;
+        }
+
+        // Sort: running first, then pending, then by created desc
+        const sorted = [...filtered].sort((a, b) => {
+            const order = { RUNNING: 0, PENDING: 1, RETRYING: 2, COMPLETED: 3, FAILED: 4 };
+            return (order[a.status] ?? 5) - (order[b.status] ?? 5) || b.createdAt - a.createdAt;
+        });
+
+        tbody.innerHTML = sorted.map(task => `
+            <tr>
+                <td><div class="task-id" title="${task.id}">${task.id ? task.id.substring(0, 8) : '—'}...</div></td>
+                <td><div class="task-name">${escHtml(task.name || '—')}</div></td>
+                <td><span class="type-chip">${task.type || '—'}</span></td>
+                <td><span class="priority ${task.priority}">${task.priority || '—'}</span></td>
+                <td><span class="badge ${task.status}"><span class="badge-dot"></span>${task.status}</span></td>
+                <td><span class="retry-count ${task.retryCount > 0 ? 'has-retries' : ''}">${task.retryCount}</span></td>
+                <td style="font-size:11px;color:var(--text2)">${formatTime(task.createdAt)}</td>
+            </tr>
+        `).join('');
+    }
+
+    // ─── UPDATE STATS ────────────────────────────────────────────
+    function updateStats() {
+        const counts = { PENDING: 0, RUNNING: 0, COMPLETED: 0, FAILED: 0, RETRYING: 0 };
+        allTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+        const total = allTasks.length || 1;
+
+        Object.entries(counts).forEach(([status, count]) => {
+            const el = document.getElementById(`stat-${status.toLowerCase()}`);
+            const bar = document.getElementById(`bar-${status.toLowerCase()}`);
+            if (el) el.textContent = count;
+            if (bar) bar.style.width = `${(count / total) * 100}%`;
+        });
+    }
+
+    // ─── SUBMIT TASK ─────────────────────────────────────────────
+    async function submitTask() {
+        const name = document.getElementById('taskName').value.trim();
+        const type = document.getElementById('taskType').value;
+        const priority = document.getElementById('taskPriority').value;
+
+        if (!name) { showToast('Task name is required', 'error'); return; }
+
+        await doSubmit(name, type, priority);
+        document.getElementById('taskName').value = '';
+    }
+
+    async function quickSubmit(name, type, priority) {
+        await doSubmit(name, type, priority);
+    }
+
+    async function doSubmit(name, type, priority) {
+        const btn = document.getElementById('submitBtn');
+        const resp = document.getElementById('responseArea');
+
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Submitting...';
+
+        try {
+            const res = await fetch(`${API}/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, type, priority })
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const task = await res.json();
+
+            resp.className = 'response-area show success';
+            resp.textContent = `✅ Task created\nID: ${task.id}\nStatus: ${task.status}`;
+
+            showToast(`Task "${name}" submitted`, 'success');
+            await loadTasks();
+
+        } catch (e) {
+            resp.className = 'response-area show error';
+            resp.textContent = `❌ Error: ${e.message}\n\nMake sure Spring Boot is running on port 8082`;
+            showToast('Failed to submit task', 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.textContent = '➕ Submit Task';
+        }
+    }
+
+    // ─── FILTER ─────────────────────────────────────────────────
+    function setFilter(filter, btn) {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderTasks();
+    }
+
+    // ─── AUTO REFRESH ────────────────────────────────────────────
+    function toggleAutoRefresh() {
+        autoRefresh = !autoRefresh;
+        const toggle = document.getElementById('toggleEl');
+        const label = document.getElementById('toggleLabel');
+        toggle.classList.toggle('active', autoRefresh);
+        label.textContent = autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF';
+        if (autoRefresh) startAutoRefresh();
+        else clearInterval(refreshInterval);
+    }
+
+    function startAutoRefresh() {
+        clearInterval(refreshInterval);
+        refreshInterval = setInterval(loadTasks, 2000);
+    }
+
+    // ─── TOAST ──────────────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span><span>${msg}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ─── HELPERS ────────────────────────────────────────────────
+    function formatTime(ts) {
+        if (!ts) return '—';
+        const d = new Date(ts);
+        return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function escHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ─── INIT ────────────────────────────────────────────────────
+    loadTasks();
+    startAutoRefresh();
+</script>
+</body>
+</html>
